@@ -3,18 +3,18 @@
 
 // global objects and variables
 volatile bool interruptFlag = false;
+volatile bool first_interrupt = false;
 uint8_t days_to_go;
 DateTime target_date;
 RTC_PCF8523 rtc;
 
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(57600);
 
   // setup interrupt
   const uint8_t INT_PIN = 2;
   pinMode(INT_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(INT_PIN), wakey_wakey, FALLING);
 
   // setup real time clock (rtc), copied from example sketch "pcf8523Countdown"
   if (! rtc.begin()) {
@@ -26,6 +26,15 @@ void setup() {
   
   // get first reading
   DateTime now = rtc.now();
+  
+  // trigger first rtc interrupt, so that subsequent interrupts are accurate
+  rtc.enableCountdownTimer(PCF8523_FrequencySecond, 10);                    // set 2 second timer
+  attachInterrupt(digitalPinToInterrupt(INT_PIN), first_wake, FALLING);     // interrupt function  "first_wake"
+  while(!first_interrupt){
+    Serial.println(first_interrupt);
+    delay(200);
+  }
+  Serial.println("First Interrupt successfully triggered.");
 
   // setup input pins for date selection
   // month
@@ -65,12 +74,14 @@ void setup() {
   if(month == 0) month = 1;
   if(month > 12) month = 12;
   if(day == 0) day == 1;
-  // TODO leap year
-  // round to max length of month
-  if(month == 2 && day > 28){
-    day = 28;
-    Serial.println("Rounded day to 28 because month is set to February!");
-  }else if(month % 2 == 1 && day > 30){
+  if(month == 2 && day > 28){         // adjust max day in february
+    if(year % 4 == 0) day = 29;       // leap year
+    else day = 28;                    // no leap year
+    Serial.print("Rounded day to ");
+    Serial.print(day);
+    Serial.println(" because month is set to February!");
+  }
+  if(month % 2 == 1 && day > 30){
     day = 30;
     Serial.println("Uneven month only last 30 day, rounded '31' to '30'!");
   }
@@ -94,13 +105,20 @@ void setup() {
   Serial.print(", hour: ");
   Serial.println(target_date.hour());
 
-  // set current days to go
+  // save current days to go for comparison in main loop
   TimeSpan time_left = target_date - now;
   days_to_go = time_left.days();
 }
 
+//------ interrupt procedures ------
+// INT0 interrupt callback; tell programm to continue setup phase
+void first_wake(){
+  first_interrupt = true;
+}
+
 // INT0 interrupt callback; update TODO flag
-void wakey_wakey(void) {
+void wakey_wakey(){
+
 }
 
 void loop() {
