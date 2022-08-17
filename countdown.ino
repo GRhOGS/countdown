@@ -1,8 +1,9 @@
 // Date and time functions using a PCF8563 RTC connected via I2C and Wire lib
 #include <RTClib.h>
+#include <LowPower.h>
 
 // global objects and variables
-volatile bool interruptFlag = false;
+volatile bool interrupt_flag = false;
 volatile bool first_interrupt = false;
 uint8_t days_to_go;
 DateTime target_date;
@@ -27,15 +28,6 @@ void setup() {
   // get first reading
   DateTime now = rtc.now();
   
-  // trigger first rtc interrupt, so that subsequent interrupts are accurate
-  rtc.enableCountdownTimer(PCF8523_FrequencySecond, 10);                    // set 2 second timer
-  attachInterrupt(digitalPinToInterrupt(INT_PIN), first_wake, FALLING);     // interrupt function  "first_wake"
-  while(!first_interrupt){
-    Serial.println(first_interrupt);
-    delay(200);
-  }
-  Serial.println("First Interrupt successfully triggered.");
-
   // setup input pins for date selection
   // month
   const uint8_t MONTH_PINS[4] = {3, 4, 5, 6};
@@ -108,6 +100,17 @@ void setup() {
   // save current days to go for comparison in main loop
   TimeSpan time_left = target_date - now;
   days_to_go = time_left.days();
+
+  // trigger first rtc interrupt, so that subsequent interrupts are accurate
+  rtc.enableCountdownTimer(PCF8523_FrequencySecond, 2);              // set 2 second timer
+  attachInterrupt(digitalPinToInterrupt(2), first_wake, FALLING);     // interrupt function  "first_wake"
+  while(!first_interrupt){
+    Serial.println(millis());
+    delay(200);
+  }
+  Serial.print("First Interrupt successfully triggered at ");
+  Serial.println(millis());
+  detachInterrupt(digitalPinToInterrupt(2));
 }
 
 //------ interrupt procedures ------
@@ -118,10 +121,11 @@ void first_wake(){
 
 // INT0 interrupt callback; update TODO flag
 void wakey_wakey(){
-
+  interrupt_flag = true;
 }
 
 void loop() {
+  rtc.deconfigureAllTimers();     // turn off alarm
   DateTime now = rtc.now();
   TimeSpan time_left = target_date - now;
   Serial.print("time left: ");
@@ -142,9 +146,19 @@ void loop() {
 
     // blink led forever when target date is reached
     if(days_to_go == 0){
-      Serial.println("Target date reached, will continue blinking LED until reset :)");
+      Serial.println("Target date reached, will continue blinking LED until reset with new date :)");
     }
   }
-  
-  delay(3000);
+
+  // sleep until next hour
+  uint16_t minutes_to_go = 59 - now.minute();                          // calculate minutes to wait
+  Serial.print("Waking up in ");
+  Serial.print(minutes_to_go);
+  Serial.println(" minutes. Sleep tight :)");
+  rtc.enableCountdownTimer(PCF8523_FrequencyMinute, minutes_to_go);    // set timer
+  attachInterrupt(digitalPinToInterrupt(2), wakey_wakey, LOW);         // interrupt function  "wakey_wakey"
+  delay(500);                                                          // wait a bit for processes to finish before sleeping
+  LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);                 // set to sleep
+  detachInterrupt(digitalPinToInterrupt(2));                           // woke up
+
 }
