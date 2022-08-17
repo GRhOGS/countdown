@@ -1,20 +1,44 @@
 // Date and time functions using a PCF8563 RTC connected via I2C and Wire lib
-#include <RTClib.h>
-#include <LowPower.h>
+#include <RTClib.h>   // adafruits rtc lib
+#include <LowPower.h> // Rocket Scream Electronics lib for sleeping 
 
 // global objects and variables
+const uint8_t INT_PIN = 2;
 volatile bool interrupt_flag = false;
-volatile bool first_interrupt = false;
 uint8_t days_to_go;
 DateTime target_date;
 RTC_PCF8523 rtc;
 
+void terminate_program(){
+  // TODO led on or blink or sth
+  detachInterrupt(INT_PIN);
+  LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);    // set to sleep
+}
+
+// INT0 interrupt callback; update TODO flag
+void wakey_wakey(){
+  // interrupt_flag = true;
+}
+
+void diplay_number(uint16_t num){
+  if(num < 0){
+    Serial.println("why are u trying to print negative numbers??");
+    terminate_program();
+  }
+  if(num > 99){
+    num = 99;
+    // TODO turn on LED
+  }else{
+    // TODO turn off LED
+  }
+}
 
 void setup() {
+  // TODO turn on LED ASAP
+
   Serial.begin(57600);
 
   // setup interrupt
-  const uint8_t INT_PIN = 2;
   pinMode(INT_PIN, INPUT_PULLUP);
 
   // setup real time clock (rtc), copied from example sketch "pcf8523Countdown"
@@ -50,8 +74,10 @@ void setup() {
   pinMode(YEAR_PIN, INPUT_PULLUP);
 
   // convvert selected date from binary to int, save in variables
-  int day = 1 * !digitalRead(DAY_PINS[0]) + 2 * !digitalRead(DAY_PINS[1]) + 4 * !digitalRead(DAY_PINS[2]) + 8 * !digitalRead(DAY_PINS[3]) + 16 * !digitalRead(DAY_PINS[4]);
-  int month = 1 * !digitalRead(MONTH_PINS[0]) + 2 * !digitalRead(MONTH_PINS[1]) + 4 * !digitalRead(MONTH_PINS[2]) + 8 * !digitalRead(MONTH_PINS[3]);
+  int day = 1 * !digitalRead(DAY_PINS[0]) + 2 * !digitalRead(DAY_PINS[1]) 
+            + 4 * !digitalRead(DAY_PINS[2]) + 8 * !digitalRead(DAY_PINS[3]) + 16 * !digitalRead(DAY_PINS[4]);
+  int month = 1 * !digitalRead(MONTH_PINS[0]) + 2 * !digitalRead(MONTH_PINS[1]) 
+            + 4 * !digitalRead(MONTH_PINS[2]) + 8 * !digitalRead(MONTH_PINS[3]);
   int hour = 1 * !digitalRead(HOUR_PIN_1) + 2 * !digitalRead(HOUR_PIN_2);
   int year = !digitalRead(YEAR_PIN);
 
@@ -102,27 +128,13 @@ void setup() {
   days_to_go = time_left.days();
 
   // trigger first rtc interrupt, so that subsequent interrupts are accurate
-  rtc.enableCountdownTimer(PCF8523_FrequencySecond, 2);              // set 2 second timer
-  attachInterrupt(digitalPinToInterrupt(2), first_wake, FALLING);     // interrupt function  "first_wake"
-  while(!first_interrupt){
-    Serial.println(millis());
-    delay(200);
-  }
-  Serial.print("First Interrupt successfully triggered at ");
-  Serial.println(millis());
-  detachInterrupt(digitalPinToInterrupt(2));
+  rtc.enableCountdownTimer(PCF8523_Frequency64Hz, 1);     // set short countdown
+  attachInterrupt(digitalPinToInterrupt(INT_PIN), wakey_wakey, FALLING);
+  delay(50);
+  detachInterrupt(digitalPinToInterrupt(INT_PIN));
+  // TODO turn off LED
 }
 
-//------ interrupt procedures ------
-// INT0 interrupt callback; tell programm to continue setup phase
-void first_wake(){
-  first_interrupt = true;
-}
-
-// INT0 interrupt callback; update TODO flag
-void wakey_wakey(){
-  interrupt_flag = true;
-}
 
 void loop() {
   rtc.deconfigureAllTimers();     // turn off alarm
@@ -144,9 +156,10 @@ void loop() {
     
     // TODO switch number
 
-    // blink led forever when target date is reached
+    // terminate program when goal is reached
     if(days_to_go == 0){
-      Serial.println("Target date reached, will continue blinking LED until reset with new date :)");
+      Serial.println("Target date reached, lighting LED until reset with new date :)");
+      terminate_program();
     }
   }
 
@@ -156,9 +169,9 @@ void loop() {
   Serial.print(minutes_to_go);
   Serial.println(" minutes. Sleep tight :)");
   rtc.enableCountdownTimer(PCF8523_FrequencyMinute, minutes_to_go);    // set timer
-  attachInterrupt(digitalPinToInterrupt(2), wakey_wakey, LOW);         // interrupt function  "wakey_wakey"
+  attachInterrupt(INT_PIN, wakey_wakey, LOW);                          // interrupt function  "wakey_wakey"
   delay(500);                                                          // wait a bit for processes to finish before sleeping
   LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);                 // set to sleep
-  detachInterrupt(digitalPinToInterrupt(2));                           // woke up
+  detachInterrupt(INT_PIN);                                            // woke up
 
 }
