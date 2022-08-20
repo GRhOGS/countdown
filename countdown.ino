@@ -1,35 +1,52 @@
 // Date and time functions using a PCF8563 RTC connected via I2C and Wire lib
-#include <RTClib.h>   // adafruits rtc lib
-#include <LowPower.h> // Rocket Scream Electronics lib for sleeping 
+#include <RTClib.h>                     // adafruits rtc lib
+#include <Adafruit_PWMServoDriver.h>    // adafruits servo driver lib
+#include <LowPower.h>                   // Rocket Scream Electronics lib for sleeping 
+#include <Wire.h>
 
 // global objects and variables
-const uint8_t INT_PIN = 2;
-volatile bool interrupt_flag = false;
-uint8_t days_to_go;
-DateTime target_date;
+#define INT_PIN 2
+#define SERVO_MIN  150    // This is the 'minimum' pulse length count (out of 4096)
+#define SERVO_MAX  600    // This is the 'maximum' pulse length count (out of 4096)
+uint16_t daysToGo = 800;  // >2 years, ensures "new day" is triggered on first entry in loop()
+volatile bool interruptFlag = false;
+DateTime targetDate;
 RTC_PCF8523 rtc;
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();    // servo driver on I2C address 0x40
 
-void terminate_program(){
-  // TODO led on or blink or sth
+void terminateProgram(){
+  // TODO pulsate led for 10min
   detachInterrupt(INT_PIN);
   LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);    // set to sleep
 }
 
 // INT0 interrupt callback; update TODO flag
-void wakey_wakey(){
-  // interrupt_flag = true;
+void wakeyWakey(){
+  // interruptFlag = true;
 }
 
-void diplay_number(uint16_t num){
+void displayNumber(uint16_t num){
   if(num < 0){
+    // should not end up in here like ever
     Serial.println("why are u trying to print negative numbers??");
-    terminate_program();
+    terminateProgram();
   }
   if(num > 99){
     num = 99;
-    // TODO turn on LED
+    // TODO turn LED on
   }else{
-    // TODO turn off LED
+    // TODO turn LED off
+  }
+
+  // temporary example code from "servo" example-script
+  uint8_t servonum = 0; // 0-15
+  for (uint16_t pulselen = SERVO_MIN; pulselen < SERVO_MAX; pulselen++) {
+    pwm.setPWM(servonum, 0, pulselen);
+  }
+
+  delay(500);
+  for (uint16_t pulselen = SERVO_MAX; pulselen > SERVO_MIN; pulselen--) {
+    pwm.setPWM(servonum, 0, pulselen);
   }
 }
 
@@ -38,11 +55,16 @@ void setup() {
 
   Serial.begin(57600);
 
+  // setup servo driver board
+  pwm.begin();
+  pwm.setOscillatorFrequency(25000000);
+  pwm.setPWMFreq(50);  // Analog servos run at ~50 Hz updates
+
   // setup interrupt
   pinMode(INT_PIN, INPUT_PULLUP);
 
   // setup real time clock (rtc), copied from example sketch "pcf8523Countdown"
-  if (! rtc.begin()) {
+  if (!rtc.begin()) {
     Serial.println("Couldn't find RTC");
     Serial.flush();
     while (1) delay(10);
@@ -53,33 +75,31 @@ void setup() {
   DateTime now = rtc.now();
   
   // setup input pins for date selection
-  // month
-  const uint8_t MONTH_PINS[4] = {3, 4, 5, 6};
-  // day
-  const uint8_t DAY_PINS[5] = {8, 9, 10, 11, 12};
+  const uint8_t DAY_PINS[5] = {8, 9, 10, 11, 12};   // day
+  const uint8_t MONTH_PINS[4] = {3, 4, 5, 6};       // month
   // hour, year
   const uint8_t HOUR_PIN_1 = A1;
   const uint8_t HOUR_PIN_2 = A0;
   const uint8_t YEAR_PIN = A3;
 
   //setup pinmodes
-  for(int i=0; i<=3; i++){
-    pinMode(MONTH_PINS[i], INPUT_PULLUP);
-  }
   for(int i=0; i<=4; i++){
     pinMode(DAY_PINS[i], INPUT_PULLUP);
+    if(i < 4) pinMode(MONTH_PINS[i], INPUT_PULLUP);
   }
   pinMode(HOUR_PIN_1, INPUT_PULLUP);
   pinMode(HOUR_PIN_2, INPUT_PULLUP);
   pinMode(YEAR_PIN, INPUT_PULLUP);
 
   // convvert selected date from binary to int, save in variables
-  int day = 1 * !digitalRead(DAY_PINS[0]) + 2 * !digitalRead(DAY_PINS[1]) 
-            + 4 * !digitalRead(DAY_PINS[2]) + 8 * !digitalRead(DAY_PINS[3]) + 16 * !digitalRead(DAY_PINS[4]);
-  int month = 1 * !digitalRead(MONTH_PINS[0]) + 2 * !digitalRead(MONTH_PINS[1]) 
-            + 4 * !digitalRead(MONTH_PINS[2]) + 8 * !digitalRead(MONTH_PINS[3]);
-  int hour = 1 * !digitalRead(HOUR_PIN_1) + 2 * !digitalRead(HOUR_PIN_2);
-  int year = !digitalRead(YEAR_PIN);
+  uint8_t day = 0;
+  uint8_t month = 0;
+  for(uint8_t i = 0; i <= 4; i++){
+    day += (2^i) * !digitalRead(DAY_PINS[i]);                 // day is 5 bit long
+    if(i < 4) month += (2^i) * !digitalRead(MONTH_PINS[i]);   // month is 4 bit long
+  }
+  uint8_t hour = 1 * !digitalRead(HOUR_PIN_1) + 2 * !digitalRead(HOUR_PIN_2);
+  uint8_t year = !digitalRead(YEAR_PIN);
 
   // set according target year to this or next year depending on year input (shorted pin = even year)
   if((year == 1 && now.year() % 2 == 0) or (year == 0 and now.year() % 2 == 1)){
@@ -111,67 +131,55 @@ void setup() {
   else hour = 21;
   
   // save for use in main loop
-  target_date = DateTime(year, month, day, hour, 0, 0); // year, month, day, hour, minute, second
+  targetDate = DateTime(year, month, day, hour, 0, 0); // year, month, day, hour, minute, second
 
   // print target date
   Serial.print("target date: ");
-  Serial.print(target_date.day());
+  Serial.print(targetDate.day());
   Serial.print(".");
-  Serial.print(target_date.month());
+  Serial.print(targetDate.month());
   Serial.print(".");
-  Serial.print(target_date.year());
+  Serial.print(targetDate.year());
   Serial.print(", hour: ");
-  Serial.println(target_date.hour());
-
-  // save current days to go for comparison in main loop
-  TimeSpan time_left = target_date - now;
-  days_to_go = time_left.days();
+  Serial.println(targetDate.hour());
 
   // trigger first rtc interrupt, so that subsequent interrupts are accurate
   rtc.enableCountdownTimer(PCF8523_Frequency64Hz, 1);     // set short countdown
-  attachInterrupt(digitalPinToInterrupt(INT_PIN), wakey_wakey, FALLING);
-  delay(50);
-  detachInterrupt(digitalPinToInterrupt(INT_PIN));
-  // TODO turn off LED
+  delay(50);                                              // wait for alarm to trigger
+  rtc.deconfigureAllTimers();                             // turn off alarm
+  // TODO turn LED off
 }
 
-
 void loop() {
-  rtc.deconfigureAllTimers();     // turn off alarm
+  rtc.deconfigureAllTimers();     // turn off alarm set at the end of loop()
   DateTime now = rtc.now();
-  TimeSpan time_left = target_date - now;
+  TimeSpan timeLeft = targetDate - now;
   Serial.print("time left: ");
-  Serial.print(time_left.days());
+  Serial.print(timeLeft.days());
   Serial.print(" days ");
-  Serial.print(time_left.hours());
+  Serial.print(timeLeft.hours());
   Serial.print(" hours ");
-  Serial.print(time_left.minutes());
+  Serial.print(timeLeft.minutes());
   Serial.println(" minutes.");
 
   // on new day
-  if((time_left.days() < days_to_go) or (time_left.days() <= 0)){
-    days_to_go = time_left.days();              //update date
-    if(time_left.days() < 0) days_to_go = 0;    // catch case when target date has been passed
-
-    
-    // TODO switch number
-
-    // terminate program when goal is reached
-    if(days_to_go == 0){
-      Serial.println("Target date reached, lighting LED until reset with new date :)");
-      terminate_program();
+  if(timeLeft.days() < daysToGo){   //timeLeft was just calculated, daysToGo is used to compare days!
+    if(timeLeft.days() < 0) daysToGo = 0;    // catch case when target date has been passed
+    else daysToGo = timeLeft.days();         // update date
+    displayNumber(daysToGo);                 // display days left
+    if(daysToGo == 0){                       // terminate program when goal is reached
+      Serial.println("Target date reached, please reset with new date :)");
+      terminateProgram();
     }
   }
 
-  // sleep until next hour
-  uint16_t minutes_to_go = 59 - now.minute();                          // calculate minutes to wait
-  Serial.print("Waking up in ");
-  Serial.print(minutes_to_go);
-  Serial.println(" minutes. Sleep tight :)");
-  rtc.enableCountdownTimer(PCF8523_FrequencyMinute, minutes_to_go);    // set timer
-  attachInterrupt(INT_PIN, wakey_wakey, LOW);                          // interrupt function  "wakey_wakey"
-  delay(500);                                                          // wait a bit for processes to finish before sleeping
-  LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);                 // set to sleep
-  detachInterrupt(INT_PIN);                                            // woke up
+  // set timer
+  if(timeLeft.hours() > 0) rtc.enableCountdownTimer(PCF8523_FrequencyHour, timeLeft.hours());  // >1h remaining
+  else rtc.enableCountdownTimer(PCF8523_FrequencyMinute, timeLeft.minutes() + 1);  // <1h remaining, +1 makes sure final hour is definately passed
+  Serial.println("Going to sleep. Sleep tight :)");
 
+  attachInterrupt(INT_PIN, wakeyWakey, LOW);                           // set interrupt
+  delay(100);                                                          // wait a bit for processes to finish before sleeping
+  LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);                 // go to sleep
+  detachInterrupt(INT_PIN);                                            // got woken up by alarm
 }
