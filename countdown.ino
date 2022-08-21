@@ -1,4 +1,3 @@
-// Date and time functions using a PCF8563 RTC connected via I2C and Wire lib
 #include <RTClib.h>                     // adafruits rtc lib
 #include <Adafruit_PWMServoDriver.h>    // adafruits servo driver lib
 #include <LowPower.h>                   // Rocket Scream Electronics lib for sleeping 
@@ -8,57 +7,136 @@
 #define INT_PIN 2
 #define SERVO_MIN  150    // This is the 'minimum' pulse length count (out of 4096)
 #define SERVO_MAX  600    // This is the 'maximum' pulse length count (out of 4096)
-uint16_t daysToGo = 800;  // >2 years, ensures "new day" is triggered on first entry in loop()
+uint16_t daysToGo = 800;  // >2 years, ensures "new day" is triggered on first loop() cycle
 volatile bool interruptFlag = false;
 DateTime targetDate;
 RTC_PCF8523 rtc;
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();    // servo driver on I2C address 0x40
+uint16_t onesNeutralState[7] = {375, 375, 375, 375, 375, 375, 375};
+uint16_t tensNeutralState[7] = {375, 375, 375, 375, 375, 375, 375};
+//                               l,   l,   r,   r,   r,   l,   r  
+uint16_t onesTurnedState[7] = {375, 375, 375, 375, 375, 375, 375}; 
+uint16_t tensTurnedState[7] = {375, 375, 375, 375, 375, 375, 375}; 
+
 
 void terminateProgram(){
-  // TODO pulsate led for 10min
+  // pulsate led for 10min
+  long oldTime = millis();
+  while (oldTime + (100*60*10) > millis()){
+    for (uint16_t i=1024; i<=4096; i++){
+      pwm.setPWM(7, 0, i);
+    }
+    delay(500);
+    for (uint16_t i=4096; i>=1024; i--){
+      pwm.setPWM(7, 0, i);
+    }
+    delay(500);
+  }
   detachInterrupt(INT_PIN);
+  turnLEDon();
+  delay(100);
   LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);    // set to sleep
 }
 
-// INT0 interrupt callback; update TODO flag
-void wakeyWakey(){
-  // interruptFlag = true;
+// INT0 interrupt callback, gets called to wake up from deep sleep
+void wakeyWakey(){}
+
+void turnLEDon(){
+  pwm.setPWM(7, 4096, 0); // LED on
 }
 
-void displayNumber(uint16_t num){
+void turnLEDoff(){
+  pwm.setPWM(7, 0, 4096); // LED off
+}
+
+void displayDaysLeft(uint16_t num){
   if(num < 0){
-    // should not end up in here like ever
+    // should never end up in here, just in case..
     Serial.println("why are u trying to print negative numbers??");
     terminateProgram();
   }
   if(num > 99){
     num = 99;
-    // TODO turn LED on
+    turnLEDon();
   }else{
-    // TODO turn LED off
+    turnLEDoff();
   }
 
-  // temporary example code from "servo" example-script
-  uint8_t servonum = 0; // 0-15
-  for (uint16_t pulselen = SERVO_MIN; pulselen < SERVO_MAX; pulselen++) {
-    pwm.setPWM(servonum, 0, pulselen);
+  displayNumber(num/10, tensNeutralState, tensTurnedState, false);  // display tens
+  displayNumber(num%10, onesNeutralState, onesTurnedState, true);   // display ones
+}
+
+void displayNumber(uint8_t num, const uint16_t neutralState[7], const uint16_t turnedState[7], bool ones){
+  uint8_t firstPWM; // channel number of first segment in number
+  if(ones) firstPWM = 8;
+  else firstPWM = 0;
+
+  // move lower side segemnts out of the way, switch middle segment
+  if(((num==0 or num==1 or num==7) and (pwm.getPWM(firstPWM+6) != neutralState[6])) or
+    ((num==2 or num==3 or num==4 or num==5 or num==6 or num==8 or num==9) and (pwm.getPWM(firstPWM+6) != turnedState[6]))){
+    pwm.setPWM(firstPWM+3, 0, neutralState[3]);
+    pwm.setPWM(firstPWM+5, 0, neutralState[5]);
+    if(num==0 or num==1 or num==7) pwm.setPWM(firstPWM+6, 0, neutralState[6]);
+    else pwm.setPWM(firstPWM+6, 0, turnedState[6]);
   }
 
-  delay(500);
-  for (uint16_t pulselen = SERVO_MAX; pulselen > SERVO_MIN; pulselen--) {
-    pwm.setPWM(servonum, 0, pulselen);
+  // define state of segments in to be displayed number
+  bool turnSegments[6]; // {top right, top, top left, bottom left, bottom, bottom right}
+  switch (num){
+    case 1:
+      bool turnSegments[6] = {1, 0, 0, 0, 0, 1};
+      break;
+    case 2:
+      bool turnSegments[6] = {1, 1, 0, 1, 1, 0};
+      break;
+    case 3:
+      bool turnSegments[6] = {1, 1, 0, 0, 1, 1};
+      break;
+    case 4:
+      bool turnSegments[6] = {1, 0, 1, 0, 0, 1};
+      break;
+    case 5:
+      bool turnSegments[6] = {0, 1, 1, 0, 1, 1};
+      break;
+    case 6:
+      bool turnSegments[6] = {0, 1, 1, 1, 1, 1};
+      break;
+    case 7:
+      bool turnSegments[6] = {1, 1, 0, 0, 0, 1};
+      break;
+    case 8:
+      bool turnSegments[6] = {1, 1, 1, 1, 1, 1};
+      break;
+    case 9:
+      bool turnSegments[6] = {1, 1, 1, 0, 1, 1};
+      break;
+    case 0:
+      bool turnSegments[6] = {1, 1, 1, 1, 1, 1};
+      break;
+    default:
+      bool turnSegments[6] = {0, 0, 0, 0, 0, 0};  // should not end up here but if it does displays nonsense
+      break;
+  }
+
+  // switch remaining segments
+  for(uint8_t i=0; i<6; i++){
+    uint16_t updatedPWM;
+    uint16_t oldState = pwm.getPWM(firstPWM + i);
+    if(turnSegments[i]) updatedPWM = turnedState[i];
+    else updatedPWM = neutralState[i];
+    pwm.setPWM(firstPWM + i, 0, updatedPWM);
+    if(updatedPWM != oldState) delay(100);
   }
 }
 
 void setup() {
-  // TODO turn on LED ASAP
-
   Serial.begin(57600);
 
   // setup servo driver board
   pwm.begin();
   pwm.setOscillatorFrequency(25000000);
   pwm.setPWMFreq(50);  // Analog servos run at ~50 Hz updates
+  turnLEDon();
 
   // setup interrupt
   pinMode(INT_PIN, INPUT_PULLUP);
@@ -147,7 +225,7 @@ void setup() {
   rtc.enableCountdownTimer(PCF8523_Frequency64Hz, 1);     // set short countdown
   delay(50);                                              // wait for alarm to trigger
   rtc.deconfigureAllTimers();                             // turn off alarm
-  // TODO turn LED off
+  turnLEDoff();
 }
 
 void loop() {
@@ -163,10 +241,10 @@ void loop() {
   Serial.println(" minutes.");
 
   // on new day
-  if(timeLeft.days() < daysToGo){   //timeLeft was just calculated, daysToGo is used to compare days!
+  if(timeLeft.days() < daysToGo){   //timeLeft was just calculated, daysToGo is used as comparison!
     if(timeLeft.days() < 0) daysToGo = 0;    // catch case when target date has been passed
     else daysToGo = timeLeft.days();         // update date
-    displayNumber(daysToGo);                 // display days left
+    displayDaysLeft(daysToGo);               // display days left
     if(daysToGo == 0){                       // terminate program when goal is reached
       Serial.println("Target date reached, please reset with new date :)");
       terminateProgram();
