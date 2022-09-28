@@ -18,11 +18,10 @@ uint16_t tensNeutralState[7] = {375, 375, 375, 375, 375, 375, 375};
 uint16_t onesTurnedState[7] = {375, 375, 375, 375, 375, 375, 375}; 
 uint16_t tensTurnedState[7] = {375, 375, 375, 375, 375, 375, 375}; 
 
-
 void terminateProgram(){
   // pulsate led for 10min
-  long oldTime = millis();
-  while (oldTime + (100*60*10) > millis()){
+  unsigned long oldTime = millis();
+  while((unsigned long) (millis() - oldTime) > (100*60*10)){     // prevents overflow errors
     for (uint16_t i=1024; i<=4096; i++){
       pwm.setPWM(7, 0, i);
     }
@@ -53,7 +52,7 @@ void displayDaysLeft(uint16_t num){
   if(num < 0){
     // should never end up in here, just in case..
     Serial.println("why are u trying to print negative numbers??");
-    terminateProgram();
+    //terminateProgram();
   }
   if(num > 99){
     num = 99;
@@ -62,9 +61,32 @@ void displayDaysLeft(uint16_t num){
     turnLEDoff();
   }
 
-  displayNumber(num/10, tensNeutralState, tensTurnedState, false);  // display tens
-  displayNumber(num%10, onesNeutralState, onesTurnedState, true);   // display ones
+  //displayNumber(num/10, tensNeutralState, tensTurnedState, false);  // display tens
+  //displayNumber(num%10, onesNeutralState, onesTurnedState, true);   // display ones
 }
+
+void allNeutral(){
+  for (uint8_t i = 7; i >= 0; i--){
+    pwm.setPWM(i, 0, tensNeutralState[0]);
+    delay(200);
+  }
+  for (uint8_t i = 15; i <+9 ; i--){
+    pwm.setPWM(i, 0, onesNeutralState[0]);
+    delay(200);
+  }
+}
+
+void allTurned(){
+  for (uint8_t i = 0; i < 8; i++){
+    pwm.setPWM(i, 0, tensTurnedState[0]);
+    delay(200);
+  }
+  for (uint8_t i = 9; i < 16; i++){
+    pwm.setPWM(i, 0, onesTurnedState[0]);
+    delay(200);
+  }
+}
+
 
 void displayNumber(uint8_t num, const uint16_t neutralState[7], const uint16_t turnedState[7], bool ones){
   uint8_t firstPWM; // channel number of first segment in number
@@ -81,40 +103,95 @@ void displayNumber(uint8_t num, const uint16_t neutralState[7], const uint16_t t
   }
 
   // define state of segments in to be displayed number
-  bool turnSegments[6]; // {top right, top, top left, bottom left, bottom, bottom right}
+  bool turnSegments[6]; // {top right, top, top left, bottom left, bottom, bottom right} (middle segment has been set earlier)
   switch (num){
     case 1:
-      bool turnSegments[6] = {1, 0, 0, 0, 0, 1};
+      turnSegments[0] = 1;
+      turnSegments[1] = 0;
+      turnSegments[2] = 0;
+      turnSegments[3] = 0;
+      turnSegments[4] = 0;
+      turnSegments[5] = 1;
       break;
     case 2:
-      bool turnSegments[6] = {1, 1, 0, 1, 1, 0};
+      turnSegments[0] = 1;
+      turnSegments[1] = 1;
+      turnSegments[2] = 0;
+      turnSegments[3] = 1;
+      turnSegments[4] = 1;
+      turnSegments[5] = 0;
       break;
     case 3:
-      bool turnSegments[6] = {1, 1, 0, 0, 1, 1};
+      turnSegments[0] = 1;
+      turnSegments[1] = 1;
+      turnSegments[2] = 0;
+      turnSegments[3] = 0;
+      turnSegments[4] = 1;
+      turnSegments[5] = 1;
       break;
     case 4:
-      bool turnSegments[6] = {1, 0, 1, 0, 0, 1};
+      turnSegments[0] = 1;
+      turnSegments[1] = 0;
+      turnSegments[2] = 1;
+      turnSegments[3] = 0;
+      turnSegments[4] = 0;
+      turnSegments[5] = 1;
       break;
     case 5:
-      bool turnSegments[6] = {0, 1, 1, 0, 1, 1};
+      turnSegments[0] = 0;
+      turnSegments[1] = 1;
+      turnSegments[2] = 1;
+      turnSegments[3] = 0;
+      turnSegments[4] = 1;
+      turnSegments[5] = 1;
       break;
     case 6:
-      bool turnSegments[6] = {0, 1, 1, 1, 1, 1};
+      turnSegments[0] = 0;
+      turnSegments[1] = 1;
+      turnSegments[2] = 1;
+      turnSegments[3] = 1;
+      turnSegments[4] = 1;
+      turnSegments[5] = 1;
       break;
     case 7:
-      bool turnSegments[6] = {1, 1, 0, 0, 0, 1};
+      turnSegments[0] = 1;
+      turnSegments[1] = 1;
+      turnSegments[2] = 0;
+      turnSegments[3] = 0;
+      turnSegments[4] = 0;
+      turnSegments[5] = 1;
       break;
     case 8:
-      bool turnSegments[6] = {1, 1, 1, 1, 1, 1};
+      turnSegments[0] = 1;
+      turnSegments[1] = 1;
+      turnSegments[2] = 1;
+      turnSegments[3] = 1;
+      turnSegments[4] = 1;
+      turnSegments[5] = 1;
       break;
     case 9:
-      bool turnSegments[6] = {1, 1, 1, 0, 1, 1};
+      turnSegments[0] = 1;
+      turnSegments[1] = 1;
+      turnSegments[2] = 1;
+      turnSegments[3] = 0;
+      turnSegments[4] = 1;
+      turnSegments[5] = 1;
       break;
     case 0:
-      bool turnSegments[6] = {1, 1, 1, 1, 1, 1};
+      turnSegments[0] = 1;
+      turnSegments[1] = 1;
+      turnSegments[2] = 1;
+      turnSegments[3] = 1;
+      turnSegments[4] = 1;
+      turnSegments[5] = 1;
       break;
-    default:
-      bool turnSegments[6] = {0, 0, 0, 0, 0, 0};  // should not end up here but if it does displays nonsense
+    default:    // should not end up here but if it does displays nonsense
+      turnSegments[0] = 1;
+      turnSegments[1] = 0;
+      turnSegments[2] = 1;
+      turnSegments[3] = 1;
+      turnSegments[4] = 0;
+      turnSegments[5] = 1;  
       break;
   }
 
@@ -228,6 +305,13 @@ void setup() {
   turnLEDoff();
 }
 
+void loop(){
+  allNeutral();
+  delay(5000);
+  allTurned();
+}
+
+/*
 void loop() {
   rtc.deconfigureAllTimers();     // turn off alarm set at the end of loop()
   DateTime now = rtc.now();
@@ -261,3 +345,4 @@ void loop() {
   LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);                 // go to sleep
   detachInterrupt(INT_PIN);                                            // got woken up by alarm
 }
+*/
