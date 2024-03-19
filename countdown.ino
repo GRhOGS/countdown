@@ -1,22 +1,27 @@
 #include <Wire.h>
-#include <Adafruit_PWMServoDriver.h>
+#include <Adafruit_PWMServoDriver.h>    // adafruit servo driver lib
+#include <RTClib.h>                     // adafruits rtc lib
+
+// if there are some hours left until the target date, and this constant is set to 0, the clock will display 0
+// if you want to round up 5 days 13hr remaining to 6 days remaining, leave this set to 1
+const uint8_t ROUNDHOURSUP = 1; 
+
 
 // 7 segment display positions 0-6: starting at the top, going clockwise, with middle segment being last element
 // servos for the ones go into slots 0-6, servos for tens go into slots 8-14
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();  // call pwm driver board at default adress 0x40
 
-// Depending on your servo make, the pulse width min and max may vary, you 
-// want these to be as small/large as possible without hitting the hard stop
-// for max range. You'll have to tweak them as necessary to match the servos you
-// have!
+// dervo min and max pulse length, depending on servo model, change to fit!
 #define SERVOMIN  150 // This is the 'minimum' pulse length count (out of 4096), 150 is good default
 #define SERVOMID  375 // should be center of servo
 #define SERVOMAX  540 // This is the 'maximum' pulse length count (out of 4096), 600 is good default
 
+// configuration for servo driver board
 #define SERVO_FREQ 50 // Analog servos run at ~50 Hz updates
 #define OSC_FREQ 25000000 // Set internal oscillator frequency. Normally: 25MHz, but realisticaly between 23-27MHz. Adjust this so that PWM pins on board deliver 50Hz signal
 
 // defines servo pulse widths for servo pointed away [0] and showing [1]
+// use this matrix for fine adjustments so that the segments line up how you want them to
 uint16_t onesPositions[7][2] = {{SERVOMIN, SERVOMID},
                                 {SERVOMAX, SERVOMID},
                                 {SERVOMAX, SERVOMID},
@@ -34,7 +39,7 @@ uint16_t tensPositions[7][2] = {{SERVOMIN, SERVOMID},
 
 // contains which segments are switched up for which number
 int numberPositions[10][7] = { {1, 1, 1, 1, 1, 1, 0}, // 0
-                              {0, 1, 1, 0, 0, 0, 0}, // 1...
+                              {0, 1, 1, 0, 0, 0, 0},  // 1...
                               {1, 1, 0, 1, 1, 0, 1},
                               {1, 1, 1, 1, 0, 0, 1},
                               {0, 1, 1, 0, 0, 1, 1},
@@ -48,6 +53,13 @@ int numberPositions[10][7] = { {1, 1, 1, 1, 1, 1, 0}, // 0
 int onesMiddleShown = 0;
 int tensMiddleShown = 0;
 
+// time related inits
+#define INT_PIN 2
+RTC_PCF8523 rtc;
+int16_t daysToGo = 800;  // >2 years, ensures "new day" is triggered on first loop() cycle
+volatile bool interruptFlag = false;
+DateTime targetDate;
+
 void setOnes(int num){
   //middle segment
   int position = numberPositions[num][6];
@@ -60,7 +72,6 @@ void setOnes(int num){
     int angle = onesPositions[6][position];
     pwm.setPWM(6, 0, angle);
     delay(100);
-
     onesMiddleShown = position;
   }
 
@@ -71,7 +82,6 @@ void setOnes(int num){
     pwm.setPWM(servNum, 0, angle);
     delay(50);
   }
-
 }
 
 void setTens(int num){
@@ -86,7 +96,6 @@ void setTens(int num){
     int angle = tensPositions[6][position];
     pwm.setPWM(14, 0, angle);
     delay(100);
-
     tensMiddleShown = position;
   }
   
@@ -96,25 +105,158 @@ void setTens(int num){
     int angle = tensPositions[servNum-8][position];
     pwm.setPWM(servNum, 0, angle);
     delay(50);
+  } 
+}
+
+void displayDaysLeft(int16_t num){
+  num += ROUNDHOURSUP;
+  if(num < 0){
+    num = 0;
   }
-    
+  if(num > 99){
+    num = 99;
+  }
+  pwm.wakeup();
+  setOnes(num%10);
+  setTens(num/10);
+  delay(1000);
+  pwm.sleep();
 }
 
 void setup() {
   Serial.begin(9600);
+  // Setup servo controller
+  Serial.println("Setting up servo controller...");
   pwm.begin();
   pwm.setOscillatorFrequency(OSC_FREQ);
   pwm.setPWMFreq(SERVO_FREQ);  // Analog servos run at ~50 Hz updates
   delay(10);
   // initialize all segments set shown
-  setOnes(8);
-  setTens(8);
+  displayDaysLeft(88-ROUNDHOURSUP);
+
+  // setup RTC
+  //rtc.start();
+  Serial.println("Setting up RTC...");
+  if (!rtc.begin()) {
+    Serial.println("Couldn't find RTC");
+    Serial.flush();
+    while (1) delay(10);
+  }
+  if (!rtc.initialized() || rtc.lostPower()){
+    rtc.adjust(DateTime(F(__DATE__), F(__TIME__))); // sets RTC to time this sketch was compiled
+  }
+  rtc.deconfigureAllTimers();   // Timer configuration is not cleared on an RTC reset due to battery backup!
+  
+  // get first reading
+  DateTime now = rtc.now();
+  
+  Serial.println("Reading target date...");
+  // setup input pins for date selection
+  const uint8_t DAY_PINS[5] = {8, 9, 10, 11, 12};   // day
+  const uint8_t MONTH_PINS[4] = {3, 4, 5, 6};       // month
+  // hour, year
+  const uint8_t HOUR_PIN_1 = A1;
+  const uint8_t HOUR_PIN_2 = A0;
+  const uint8_t YEAR_PIN = A3;
+
+  //setup pinmodes
+  for(int i=0; i<=4; i++){
+    pinMode(DAY_PINS[i], INPUT_PULLUP);
+    if(i < 4) pinMode(MONTH_PINS[i], INPUT_PULLUP);
+  }
+  pinMode(HOUR_PIN_1, INPUT_PULLUP);
+  pinMode(HOUR_PIN_2, INPUT_PULLUP);
+  pinMode(YEAR_PIN, INPUT_PULLUP);
+
+  // convvert selected date from binary to int, save in variables
+  int day = 0;
+  int month = 0;
+  for(int i = 0; i <= 4; i++){
+    day += !digitalRead(DAY_PINS[i])<<i;                 // day is 5 bit long
+    if(i < 4) month += !digitalRead(MONTH_PINS[i])<<i;   // month is 4 bit long
+  }
+
+  uint8_t hour = 1 * !digitalRead(HOUR_PIN_1) + 2 * !digitalRead(HOUR_PIN_2);
+  uint16_t year = !digitalRead(YEAR_PIN);
+
+  // set according target year to this or next year depending on year input (shorted pin = even year)
+  if((year == 1 && now.year() % 2 == 0) or (year == 0 and now.year() % 2 == 1)){
+    year = now.year();
+  } else {
+    year = now.year() + 1;
+  }
+  // "round" selection to valid date
+  if(month == 0) month = 1;
+  if(month > 12) month = 12;
+  if(day == 0) day == 1;
+  if(month == 2 && day > 28){         // adjust max day in february
+    if(year % 4 == 0) day = 29;       // leap year
+    else day = 28;                    // no leap year
+    Serial.print("Rounded day to ");
+    Serial.print(day);
+    Serial.println(" because month is set to February!");
+  }
+  if(month % 2 == 1 && day > 30){
+    day = 30;
+    Serial.println("Uneven month only last 30 day, rounded '31' to '30'!");
+  }
+
+  // convert hour selection to real hour value
+  if(hour == 0) hour = 0;
+  else if(hour == 1) hour = 9;
+  else if(hour == 2) hour = 15;
+  else hour = 21;
+  
+  // save for use in main loop
+  targetDate = DateTime(year, month, day, hour, 0, 0); // year, month, day, hour, minute, second
+
+  // print target date
+  Serial.print("target date: ");
+  Serial.print(targetDate.day());
+  Serial.print(".");
+  Serial.print(targetDate.month());
+  Serial.print(".");
+  Serial.print(targetDate.year());
+  Serial.print(", hour: ");
+  Serial.println(targetDate.hour());
+
+  // trigger first rtc interrupt, so that subsequent interrupts are accurate
+  rtc.enableCountdownTimer(PCF8523_Frequency64Hz, 1);     // set short countdown
+  delay(50);                                              // wait for alarm to trigger
+  rtc.deconfigureAllTimers();                             // turn off alarm
 }
 
 void loop() {
-  for(int i = 0; i < 10; i++){
-    setOnes(i);
-    setTens(i);
-    delay(2000);
+  rtc.deconfigureAllTimers();     // turn off alarm set at the end of loop()
+  DateTime now = rtc.now();
+  TimeSpan timeLeft = targetDate - now;
+  Serial.print("time left: ");
+  Serial.print(timeLeft.days());
+  Serial.print(" days ");
+  Serial.print(timeLeft.hours());
+  Serial.print(" hours ");
+  Serial.print(timeLeft.minutes());
+  Serial.println(" minutes.");
+
+  // on new day
+  if(timeLeft.days() < daysToGo){   //timeLeft was just calculated, daysToGo is used as comparison!
+    if(timeLeft.days() < 0) daysToGo = 0;    // catch case when target date has been passed
+    else daysToGo = timeLeft.days();         // update date
+    displayDaysLeft(daysToGo);               // display days left
+    if(daysToGo == 0){                       // terminate program when goal is reached
+      Serial.println("Target date reached, please reset with new date :)");
+      while(1) delay(10);
+    }
   }
+
+  delay(999999);
+  // set timer
+  if(timeLeft.hours() > 0) rtc.enableCountdownTimer(PCF8523_FrequencyHour, timeLeft.hours());  // >1h remaining
+  else rtc.enableCountdownTimer(PCF8523_FrequencyMinute, timeLeft.minutes() + 1);  // <1h remaining, +1 makes sure final hour is definately passed
+  Serial.println("Going to sleep. Sleep tight :)");
+
+  // attachInterrupt(INT_PIN, wakeyWakey, LOW);                           // set interrupt
+  // delay(100);                                                          // wait a bit for processes to finish before sleeping
+  // LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);                 // go to sleep
+  // detachInterrupt(INT_PIN);                                            // got woken up by alarm
 }
