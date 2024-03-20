@@ -1,10 +1,11 @@
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>    // adafruit servo driver lib
 #include <RTClib.h>                     // adafruits rtc lib
+#include <LowPower.h>                   // Low Power library from Rocket Scream Electronics
 
 // if there are some hours left until the target date, and this constant is set to 0, the clock will display 0
 // if you want to round up 5 days 13hr remaining to 6 days remaining, leave this set to 1
-const uint8_t ROUNDHOURSUP = 1; 
+const uint8_t ROUND_HOURS_UP = 1; 
 
 
 // 7 segment display positions 0-6: starting at the top, going clockwise, with middle segment being last element
@@ -12,9 +13,9 @@ const uint8_t ROUNDHOURSUP = 1;
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();  // call pwm driver board at default adress 0x40
 
 // dervo min and max pulse length, depending on servo model, change to fit!
-#define SERVOMIN  150 // This is the 'minimum' pulse length count (out of 4096), 150 is good default
-#define SERVOMID  375 // should be center of servo
-#define SERVOMAX  540 // This is the 'maximum' pulse length count (out of 4096), 600 is good default
+#define SERVO_MIN  150 // This is the 'minimum' pulse length count (out of 4096), 150 is good default
+#define SERVO_MID  375 // should be center of servo
+#define SERVO_MAX  540 // This is the 'maximum' pulse length count (out of 4096), 600 is good default
 
 // configuration for servo driver board
 #define SERVO_FREQ 50 // Analog servos run at ~50 Hz updates
@@ -22,32 +23,32 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();  // call pwm driver boa
 
 // defines servo pulse widths for servo pointed away [0] and showing [1]
 // use this matrix for fine adjustments so that the segments line up how you want them to
-uint16_t onesPositions[7][2] = {{SERVOMIN, SERVOMID},
-                                {SERVOMAX, SERVOMID},
-                                {SERVOMAX, SERVOMID},
-                                {SERVOMAX, SERVOMID},
-                                {SERVOMIN+30, SERVOMID},
-                                {SERVOMIN, SERVOMID},
-                                {SERVOMAX-40, SERVOMID}};   // dont turn middle segment all the way, crashes into other servo otherwise
-uint16_t tensPositions[7][2] = {{SERVOMIN, SERVOMID},
-                                {SERVOMAX, SERVOMID},
-                                {SERVOMAX-10, SERVOMID},
-                                {SERVOMAX, SERVOMID},
-                                {SERVOMIN, SERVOMID},
-                                {SERVOMIN, SERVOMID},
-                                {SERVOMAX-40, SERVOMID}};   // dont turn middle segment all the way, crashes into other servo otherwise
+const uint16_t onesPositions[7][2] = {{SERVO_MIN, SERVO_MID},
+                                      {SERVO_MAX, SERVO_MID},
+                                      {SERVO_MAX, SERVO_MID},
+                                      {SERVO_MAX, SERVO_MID},
+                                      {SERVO_MIN+30, SERVO_MID},
+                                      {SERVO_MIN, SERVO_MID},
+                                      {SERVO_MAX-40, SERVO_MID}};   // dont turn middle segment all the way, crashes into other servo otherwise
+const uint16_t tensPositions[7][2] = {{SERVO_MIN, SERVO_MID},
+                                      {SERVO_MAX, SERVO_MID},
+                                      {SERVO_MAX-10, SERVO_MID},
+                                      {SERVO_MAX, SERVO_MID},
+                                      {SERVO_MIN, SERVO_MID},
+                                      {SERVO_MIN, SERVO_MID},
+                                      {SERVO_MAX-40, SERVO_MID}};   // dont turn middle segment all the way, crashes into other servo otherwise
 
 // contains which segments are switched up for which number
-int numberPositions[10][7] = { {1, 1, 1, 1, 1, 1, 0}, // 0
-                              {0, 1, 1, 0, 0, 0, 0},  // 1...
-                              {1, 1, 0, 1, 1, 0, 1},
-                              {1, 1, 1, 1, 0, 0, 1},
-                              {0, 1, 1, 0, 0, 1, 1},
-                              {1, 0, 1, 1, 0, 1, 1},
-                              {1, 0, 1, 1, 1, 1, 1},
-                              {1, 1, 1, 0, 0, 0, 0},
-                              {1, 1, 1, 1, 1, 1, 1},
-                              {1, 1, 1, 1, 0, 1, 1}};
+const int numberPositions[10][7] = { {1, 1, 1, 1, 1, 1, 0}, // 0
+                                    {0, 1, 1, 0, 0, 0, 0},  // 1...
+                                    {1, 1, 0, 1, 1, 0, 1},
+                                    {1, 1, 1, 1, 0, 0, 1},
+                                    {0, 1, 1, 0, 0, 1, 1},
+                                    {1, 0, 1, 1, 0, 1, 1},
+                                    {1, 0, 1, 1, 1, 1, 1},
+                                    {1, 1, 1, 0, 0, 0, 0},
+                                    {1, 1, 1, 1, 1, 1, 1},
+                                    {1, 1, 1, 1, 0, 1, 1}};
 
 // keep track of middle segment to avoid collisions
 int onesMiddleShown = 0;
@@ -59,6 +60,8 @@ RTC_PCF8523 rtc;
 int16_t daysToGo = 800;  // >2 years, ensures "new day" is triggered on first loop() cycle
 volatile bool interruptFlag = false;
 DateTime targetDate;
+
+void wakeyWakey(){}     // interrupt function
 
 void setOnes(int num){
   //middle segment
@@ -109,7 +112,7 @@ void setTens(int num){
 }
 
 void displayDaysLeft(int16_t num){
-  num += ROUNDHOURSUP;
+  num += ROUND_HOURS_UP;
   if(num < 0){
     num = 0;
   }
@@ -132,7 +135,7 @@ void setup() {
   pwm.setPWMFreq(SERVO_FREQ);  // Analog servos run at ~50 Hz updates
   delay(10);
   // initialize all segments set shown
-  displayDaysLeft(88-ROUNDHOURSUP);
+  displayDaysLeft(88-ROUND_HOURS_UP);
 
   // setup RTC
   //rtc.start();
@@ -146,6 +149,8 @@ void setup() {
     rtc.adjust(DateTime(F(__DATE__), F(__TIME__))); // sets RTC to time this sketch was compiled
   }
   rtc.deconfigureAllTimers();   // Timer configuration is not cleared on an RTC reset due to battery backup!
+  pinMode(INT_PIN, INPUT_PULLUP);
+
   
   // get first reading
   DateTime now = rtc.now();
@@ -249,14 +254,20 @@ void loop() {
     }
   }
 
-  delay(999999);
   // set timer
-  if(timeLeft.hours() > 0) rtc.enableCountdownTimer(PCF8523_FrequencyHour, timeLeft.hours());  // >1h remaining
-  else rtc.enableCountdownTimer(PCF8523_FrequencyMinute, timeLeft.minutes() + 1);  // <1h remaining, +1 makes sure final hour is definately passed
-  Serial.println("Going to sleep. Sleep tight :)");
+  Serial.print("Going to sleep for ");
+  if(timeLeft.hours() > 0){
+    rtc.enableCountdownTimer(PCF8523_FrequencyHour, timeLeft.hours());  // >1h remaining
+    Serial.print(timeLeft.hours()); Serial.print(" hours.");
+  } else {
+    rtc.enableCountdownTimer(PCF8523_FrequencyMinute, timeLeft.minutes() + 1);  // <1h remaining, +1 makes sure final hour is definately passed
+    Serial.print(timeLeft.minutes()+1); Serial.print(" minutes.");
+  }
+  Serial.println(" Sleep tight :)");
 
-  // attachInterrupt(INT_PIN, wakeyWakey, LOW);                           // set interrupt
-  // delay(100);                                                          // wait a bit for processes to finish before sleeping
-  // LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);                 // go to sleep
-  // detachInterrupt(INT_PIN);                                            // got woken up by alarm
+  attachInterrupt(digitalPinToInterrupt(INT_PIN), wakeyWakey, LOW);                           // set interrupt
+  delay(100);                                                          // wait a bit for processes to finish before sleeping
+  LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);                 // go to sleep
+  detachInterrupt(digitalPinToInterrupt(INT_PIN));                                            // got woken up by alarm
+  Serial.println("woke up!");
 }
