@@ -24,19 +24,19 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();  // call pwm driver boa
 // defines servo pulse widths for servo pointed away [0] and showing [1]
 // use this matrix for fine adjustments so that the segments line up how you want them to
 const uint16_t onesPositions[7][2] = {{SERVO_MIN, SERVO_MID},
-                                      {SERVO_MAX, SERVO_MID},
-                                      {SERVO_MAX, SERVO_MID},
-                                      {SERVO_MAX, SERVO_MID},
-                                      {SERVO_MIN+30, SERVO_MID},
-                                      {SERVO_MIN, SERVO_MID},
-                                      {SERVO_MAX-40, SERVO_MID}};   // dont turn middle segment all the way, crashes into other servo otherwise
-const uint16_t tensPositions[7][2] = {{SERVO_MIN, SERVO_MID},
+                                      {SERVO_MAX, SERVO_MID-20},
+                                      {SERVO_MAX, SERVO_MID+10},
+                                      {SERVO_MAX, SERVO_MID-10},
+                                      {SERVO_MIN+30, SERVO_MID+10},
+                                      {SERVO_MIN, SERVO_MID+20},
+                                      {SERVO_MAX, SERVO_MID}};
+const uint16_t tensPositions[7][2] = {{SERVO_MIN, SERVO_MID+10},
                                       {SERVO_MAX, SERVO_MID},
                                       {SERVO_MAX-10, SERVO_MID},
-                                      {SERVO_MAX, SERVO_MID},
+                                      {SERVO_MAX, SERVO_MID-20},
                                       {SERVO_MIN, SERVO_MID},
                                       {SERVO_MIN, SERVO_MID},
-                                      {SERVO_MAX-40, SERVO_MID}};   // dont turn middle segment all the way, crashes into other servo otherwise
+                                      {SERVO_MAX-10, SERVO_MID}};
 
 // contains which segments are switched up for which number
 const int numberPositions[10][7] = { {1, 1, 1, 1, 1, 1, 0}, // 0
