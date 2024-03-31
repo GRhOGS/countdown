@@ -255,7 +255,7 @@ void loop() {
     displayDaysLeft(daysToGo + offset);      // display days left
     if(daysToGo == 0){                       // terminate program when goal is reached
       Serial.println("Target date reached, please reset with new date :)");
-      while(1) delay(10);
+      LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);                 // go to sleep
     }
   }
 
