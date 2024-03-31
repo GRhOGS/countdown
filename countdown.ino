@@ -3,11 +3,6 @@
 #include <RTClib.h>                     // adafruits rtc lib
 #include <LowPower.h>                   // Low Power library from Rocket Scream Electronics
 
-// if there are some hours left until the target date, and this constant is set to 0, the clock will display 0
-// if you want to round up 5 days 13hr remaining to 6 days remaining, leave this set to 1
-const uint8_t ROUND_HOURS_UP = 1; 
-
-
 // 7 segment display positions 0-6: starting at the top, going clockwise, with middle segment being last element
 // servos for the ones go into slots 0-6, servos for tens go into slots 8-14
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();  // call pwm driver board at default adress 0x40
@@ -39,7 +34,7 @@ const uint16_t tensPositions[7][2] = {{SERVO_MIN, SERVO_MID+10},
                                       {SERVO_MAX-10, SERVO_MID}};
 
 // contains which segments are switched up for which number
-const int numberPositions[10][7] = { {1, 1, 1, 1, 1, 1, 0}, // 0
+const int numberPositions[11][7] = { {1, 1, 1, 1, 1, 1, 0}, // 0
                                     {0, 1, 1, 0, 0, 0, 0},  // 1...
                                     {1, 1, 0, 1, 1, 0, 1},
                                     {1, 1, 1, 1, 0, 0, 1},
@@ -48,11 +43,12 @@ const int numberPositions[10][7] = { {1, 1, 1, 1, 1, 1, 0}, // 0
                                     {1, 0, 1, 1, 1, 1, 1},
                                     {1, 1, 1, 0, 0, 0, 0},
                                     {1, 1, 1, 1, 1, 1, 1},
-                                    {1, 1, 1, 1, 0, 1, 1}};
+                                    {1, 1, 1, 1, 0, 1, 1},
+                                    {0, 0, 1, 0, 1, 1, 1}}; // "h" for "hi" on startup
 
 // keep track of middle segment to avoid collisions
-int onesMiddleShown = 0;
-int tensMiddleShown = 0;
+int onesMiddleShown;
+int tensMiddleShown;
 
 // time related inits
 #define INT_PIN 2
@@ -112,7 +108,6 @@ void setTens(int num){
 }
 
 void displayDaysLeft(int16_t num){
-  num += ROUND_HOURS_UP;
   if(num < 0){
     num = 0;
   }
@@ -122,7 +117,7 @@ void displayDaysLeft(int16_t num){
   pwm.wakeup();
   setOnes(num%10);
   setTens(num/10);
-  delay(1000);
+  delay(2000);
   pwm.sleep();
 }
 
@@ -134,8 +129,11 @@ void setup() {
   pwm.setOscillatorFrequency(OSC_FREQ);
   pwm.setPWMFreq(SERVO_FREQ);  // Analog servos run at ~50 Hz updates
   delay(10);
-  // initialize all segments set shown
-  displayDaysLeft(88-ROUND_HOURS_UP);
+  // hi message
+  tensMiddleShown = 0;
+  setTens(10);
+  onesMiddleShown = 1;
+  setOnes(1);
 
   // setup RTC
   //rtc.start();
@@ -150,10 +148,15 @@ void setup() {
   }
   rtc.deconfigureAllTimers();   // Timer configuration is not cleared on an RTC reset due to battery backup!
   pinMode(INT_PIN, INPUT_PULLUP);
-
   
   // get first reading
   DateTime now = rtc.now();
+  Serial.print("Right now the date and time are: ");
+  Serial.print(now.day()); Serial.print(".");
+  Serial.print(now.month()); Serial.print(".");
+  Serial.print(now.year()); Serial.print(" ");
+  Serial.print(now.hour()); Serial.print(":");
+  Serial.println(now.minute());
   
   Serial.println("Reading target date...");
   // setup input pins for date selection
@@ -229,6 +232,7 @@ void setup() {
   rtc.enableCountdownTimer(PCF8523_Frequency64Hz, 1);     // set short countdown
   delay(50);                                              // wait for alarm to trigger
   rtc.deconfigureAllTimers();                             // turn off alarm
+  delay(2000); // let hi message linger a little
 }
 
 void loop() {
@@ -247,7 +251,8 @@ void loop() {
   if(timeLeft.days() < daysToGo){   //timeLeft was just calculated, daysToGo is used as comparison!
     if(timeLeft.days() < 0) daysToGo = 0;    // catch case when target date has been passed
     else daysToGo = timeLeft.days();         // update date
-    displayDaysLeft(daysToGo);               // display days left
+    int offset = int((timeLeft.hours() > 0) && (timeLeft.minutes() > 0));
+    displayDaysLeft(daysToGo + offset);      // display days left
     if(daysToGo == 0){                       // terminate program when goal is reached
       Serial.println("Target date reached, please reset with new date :)");
       while(1) delay(10);
